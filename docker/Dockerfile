@@ -132,6 +132,15 @@ COPY pyproject.toml README.rst build_rust.py Cargo.toml Cargo.lock /synapse/
 # Repeat of earlier build argument declaration, as this is a new build stage.
 ARG TEST_ONLY_IGNORE_POETRY_LOCKFILE
 
+# This branch's setuptools_rust==1.5.x (pinned in pyproject.toml, unpinned upper bound on
+# setuptools itself) imports pkg_resources during the Rust-extension build. pkg_resources was
+# removed from current setuptools releases, breaking this on any pip build-isolation env that
+# resolves latest-setuptools today. PIP_CONSTRAINT is honored inside pip's isolated build venvs
+# (unlike a plain `pip install setuptools<81` in the outer image), so this fixes it without
+# touching the pinned dependency versions this old checkout is deliberately testing against.
+RUN echo "setuptools<81" > /pip-constraints.txt
+ENV PIP_CONSTRAINT=/pip-constraints.txt
+
 # Install the synapse package itself.
 # If we have populated requirements.txt, we don't install any dependencies
 # as we should already have those from the previous `pip install` step.
