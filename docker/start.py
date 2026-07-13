@@ -148,8 +148,6 @@ def run_generate_config(environ: Mapping[str, str], ownership: Optional[str]) ->
     Args:
         environ: env vars from `os.enrivon`.
         ownership: "userid:groupid" arg for chmod. If None, ownership will not change.
-
-    Never returns.
     """
     for v in ("SYNAPSE_SERVER_NAME", "SYNAPSE_REPORT_STATS"):
         if v not in environ:
@@ -159,11 +157,6 @@ def run_generate_config(environ: Mapping[str, str], ownership: Optional[str]) ->
     config_dir = environ.get("SYNAPSE_CONFIG_DIR", "/data")
     config_path = environ.get("SYNAPSE_CONFIG_PATH", config_dir + "/homeserver.yaml")
     data_dir = environ.get("SYNAPSE_DATA_DIR", "/data")
-
-    if ownership is not None:
-        # make sure that synapse has perms to write to the data dir.
-        log(f"Setting ownership on {data_dir} to {ownership}")
-        subprocess.run(["chown", ownership, data_dir], check=True)
 
     # create a suitable log config from our template
     log_config_file = "%s/%s.log.config" % (config_dir, server_name)
@@ -191,7 +184,20 @@ def run_generate_config(environ: Mapping[str, str], ownership: Optional[str]) ->
     ]
     # log("running %s" % (args, ))
     flush_buffers()
-    os.execv(sys.executable, args)
+    # Was `os.execv` (never returns) -- changed to a blocking call so ownership can be fixed
+    # up afterward, once the config/signing-key/log-config files this step creates actually
+    # exist. The previous chown-before-generate here was a no-op in practice: it only touched
+    # the (empty, at that point) /data directory entry, not the files generated moments later,
+    # so they stayed root-owned regardless of `ownership` -- then `run` mode's unconditional
+    # gosu-drop to UID 991 (whenever no explicit UID/GID is given) couldn't read them.
+    subprocess.run(args, check=True)
+
+    if ownership is not None:
+        # make sure the newly-generated files are actually readable by whoever `run` mode
+        # will execute as -- recursive, unlike the old pre-generate chown, since `data_dir`
+        # now has real content that needs to change ownership too, not just the directory itself.
+        log(f"Setting ownership on {data_dir} to {ownership}")
+        subprocess.run(["chown", "-R", ownership, data_dir], check=True)
 
 
 def main(args: List[str], environ: MutableMapping[str, str]) -> None:
