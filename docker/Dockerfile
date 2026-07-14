@@ -185,6 +185,23 @@ COPY --from=builder /install /usr/local
 COPY ./docker/start.py /start.py
 COPY ./docker/conf /conf
 
+# Python-Instrumentation (github.com/yifan19/Python-Instrumentation), for bugs that need a
+# server-side hook -- baked in but inert unless SYNAPSE_INSTRUMENT is set at `docker run` time
+# (see docker/start.py). Passed as a named build context so this Dockerfile doesn't need to
+# live inside that checkout: `docker build --build-context instrumentation=../Python-Instrumentation ...`.
+# setuptools<81 because driver.py's `from setuptools.sandbox import _execfile` needs it (removed
+# in later setuptools) -- not pinned to an exact version, that fought pip's resolver over
+# setuptools-rust's own `setuptools>=62.4` requirement (already installed by this point) for no
+# reason: verified setuptools.sandbox still works anywhere in that whole range, not just one
+# specific old version. more_itertools: some setuptools versions in that range vendor
+# jaraco.text -> jaraco.functools -> more_itertools without actually depending on it, so a plain
+# `import setuptools` raises ModuleNotFoundError unless it's installed as a real package --
+# caught by actually running the container, not just importing it standalone at build time.
+# bytecode==0.15.1 is what its bytecode-rewriting is pinned against elsewhere.
+COPY --from=instrumentation . /opt/python-instrumentation
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install --no-warn-script-location "setuptools<81" "bytecode==0.15.1" more_itertools
+
 EXPOSE 8008/tcp 8009/tcp 8448/tcp
 
 ENTRYPOINT ["/start.py"]

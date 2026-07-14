@@ -215,6 +215,12 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
 
     synapse_worker = environ.get("SYNAPSE_WORKER", "synapse.app.homeserver")
 
+    # If set, run synapse through Python-Instrumentation's driver.py instead of invoking it
+    # directly -- baked into the image at /opt/python-instrumentation (see Dockerfile), but
+    # only actually used when this is set, since most bugs don't need a server-side hook.
+    # Whichever plan is currently armed in that checkout's constants/hooks.py is what runs.
+    instrument_driver = environ.get("SYNAPSE_INSTRUMENT")
+
     # In generate mode, generate a configuration and missing keys, then exit
     if mode == "generate":
         return run_generate_config(environ, ownership)
@@ -235,7 +241,10 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
     args = args[2:]
 
     if "-m" not in args:
-        args = ["-m", synapse_worker] + args
+        if instrument_driver:
+            args = [instrument_driver, "-m", synapse_worker] + args
+        else:
+            args = ["-m", synapse_worker] + args
 
     jemallocpath = "/usr/lib/%s-linux-gnu/libjemalloc.so.2" % (platform.machine(),)
 
